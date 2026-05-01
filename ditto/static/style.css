@@ -1,0 +1,270 @@
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface-raised: #22263a;
+  --border: #2e3248;
+  --divider: #3a3f5c;
+  --text: #e2e4f0;
+  --text-muted: #6b7094;
+  --accent: #5b6ef5;
+  --tag-prior: #3b6fd4;
+  --tag-prior-bg: #1a2a4a;
+  --tag-approx: #2e9e63;
+  --tag-approx-bg: #0f2d20;
+  --tag-observed: #d4823b;
+  --tag-observed-bg: #3a2010;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+#header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+#header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+#header .subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ── Upload zone ── */
+#upload-area {
+  padding: 32px;
+  display: flex;
+  justify-content: center;
+}
+
+#drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  width: 100%;
+  max-width: 640px;
+}
+
+#drop-zone.large {
+  padding: 56px 32px;
+}
+
+#drop-zone.compact {
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 100%;
+}
+
+#drop-zone.dragover,
+#drop-zone:hover {
+  border-color: var(--accent);
+  background: rgba(91, 110, 245, 0.05);
+}
+
+#drop-zone .drop-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  display: block;
+}
+
+#drop-zone.compact .drop-icon {
+  font-size: 20px;
+  margin: 0;
+}
+
+#drop-zone .drop-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+#drop-zone.compact .drop-title {
+  font-size: 14px;
+  margin: 0;
+}
+
+#drop-zone .drop-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+#drop-zone.compact .drop-sub {
+  font-size: 12px;
+}
+
+#file-input { display: none; }
+
+/* ── Status ── */
+#status {
+  padding: 0 32px 8px;
+  min-height: 28px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+#status.error { color: #e05c5c; }
+#status.loading { color: var(--accent); }
+
+/* ── Notes bar ── */
+#notes-bar {
+  margin: 0 32px 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-muted);
+  display: none;
+}
+
+#notes-bar.visible { display: block; }
+
+#notes-bar strong { color: var(--text); }
+
+/* ── Variable grid ── */
+#grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+  gap: 20px;
+  padding: 0 32px 40px;
+}
+
+/* ── Variable card ── */
+.var-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-header .var-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
+.tag-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+.tag-prior   { background: var(--tag-prior-bg);    color: #7aaef5; }
+.tag-approx  { background: var(--tag-approx-bg);   color: #5ec98a; }
+.tag-observed { background: var(--tag-observed-bg); color: #f0a060; }
+
+.diff-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-badge .arrow { color: var(--accent); margin: 0 4px; }
+
+/* ── Chart area ── */
+.card-body {
+  padding: 16px 18px;
+}
+
+/* Single version */
+.card-body.single canvas {
+  width: 100% !important;
+  height: 180px !important;
+}
+
+/* Two versions — side by side */
+.card-body.compare {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 0;
+}
+
+.chart-col {
+  padding: 0 4px;
+}
+
+.chart-col:first-child { padding-left: 0; }
+.chart-col:last-child  { padding-right: 0; }
+
+.chart-divider {
+  background: var(--divider);
+  width: 1px;
+  margin: 0 12px;
+}
+
+.chart-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-col canvas {
+  width: 100% !important;
+  height: 180px !important;
+}
+
+/* ── Spinner ── */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }

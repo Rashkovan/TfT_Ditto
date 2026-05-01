@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pyro-ppl>=1.8
+torch

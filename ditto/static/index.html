@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ditto — Bayesian Distribution Diff</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<div id="header">
+  <h1>Ditto</h1>
+  <span class="subtitle">Bayesian distribution versioning</span>
+</div>
+
+<div id="upload-area">
+  <div id="drop-zone" class="large" role="button" tabindex="0"
+       aria-label="Upload a Pyro model file">
+    <span class="drop-icon">⬆</span>
+    <div class="drop-title">Drop a Pyro model file here</div>
+    <div class="drop-sub">or click to browse — .py files with <code># !Ditto:</code> annotations</div>
+    <input type="file" id="file-input" accept=".py" />
+  </div>
+</div>
+
+<div id="status"></div>
+<div id="notes-bar"></div>
+<div id="grid"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
