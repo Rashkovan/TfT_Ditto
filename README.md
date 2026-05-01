@@ -1,6 +1,11 @@
 # TfT_Ditto
 Project for Tools for Though S26
 
+TO LAUNCH: 
+cd ditto        
+  uvicorn main:app --reload
+  # → http://127.0.0.1:8000
+
 The flow of the architercture: 
 
 models.py -- AnnotatedVariable and VariableResult dataclasses
