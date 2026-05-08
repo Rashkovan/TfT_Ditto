@@ -63,9 +63,9 @@ session_b = [
 def model(events):
     
     # Priors
-    # !Ditto: latent
+    # !Ditto: prior, latent
     lambda_plus = pyro.sample("lambda_plus",   dist.Gamma(1.0, 1.0))
-    # !Ditto: latent
+    # !Ditto: prior, latent
     lambda_minus = pyro.sample("lambda_minus", dist.Gamma(1.0, 1.0))
 
     # encode data

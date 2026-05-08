@@ -624,6 +624,42 @@ def _initial_side_panel(message: str = "Hover or click a node to see its distrib
     return html.Div(message)
 
 
+def _hidden_edit_stubs() -> html.Div:
+    """Hidden placeholder components for prior-edit controls.
+
+    Dash callbacks targeting ``prior-edit-textarea``/``apply-prior-btn``/
+    ``prior-edit-msg`` need those IDs to exist in the layout at firing time,
+    even when the currently selected variable isn't tagged ``prior``. We
+    render a ``display: none`` stub so the components remain in the tree
+    and callbacks register cleanly.
+    """
+    return html.Div(
+        style={"display": "none"},
+        children=[
+            dcc.Textarea(id="prior-edit-textarea", value=""),
+            html.Button("Apply Prior", id="apply-prior-btn", n_clicks=0),
+            html.Span(id="prior-edit-msg"),
+        ],
+    )
+
+
+def _hidden_data_stubs() -> html.Div:
+    """Hidden placeholder components for the data-upload affordance.
+
+    Mirrors :func:`_hidden_edit_stubs` for ``upload-data``/``data-summary``
+    so the upload callback can still register for any variable selection
+    even though the visible affordance is only rendered for ``observed``
+    variables.
+    """
+    return html.Div(
+        style={"display": "none"},
+        children=[
+            dcc.Upload(id="upload-data", children=html.Div("")),
+            html.Div(id="data-summary", children=""),
+        ],
+    )
+
+
 def _toolbar(file_loaded: bool) -> html.Div:
     return html.Div(
         style={
@@ -771,7 +807,7 @@ def create_dash_app(
                                         cyto.Cytoscape(
                                             id="cytoscape",
                                             layout={"name": "dagre"},
-                                            autoRefreshLayout=False,
+                                            autoRefreshLayout=True,
                                             userPanningEnabled=True,
                                             userZoomingEnabled=True,
                                             style={"width": "100%", "height": "100%",
@@ -795,7 +831,8 @@ def create_dash_app(
                             ),
                         ],
                     ),
-                    # Right: side panel with hover/click + data upload + edit.
+                    # Right: side panel with hover/click + per-variable edit
+                    # / data upload (rendered conditionally based on tags).
                     html.Div(
                         id="side-panel",
                         style={"flex": "1", "padding": "12px",
@@ -803,31 +840,6 @@ def create_dash_app(
                         children=[
                             html.Div(id="tooltip-div",
                                         children=_initial_side_panel()),
-                            html.Hr(),
-                            html.H4("Data"),
-                            dcc.Upload(
-                                id="upload-data",
-                                children=html.Div([
-                                    "Drop a data file (.csv, .npy, .pkl) or ",
-                                    html.A("click to browse", style={"color": "#4C72B0"}),
-                                ]),
-                                style={
-                                    "border": "1px dashed #aaa",
-                                    "borderRadius": "6px",
-                                    "padding": "10px",
-                                    "textAlign": "center",
-                                    "color": "#666",
-                                    "fontSize": "13px",
-                                },
-                                multiple=False,
-                                accept=".csv,.npy,.pkl",
-                            ),
-                            html.Div(
-                                id="data-summary",
-                                style={"fontSize": "12px", "color": "#444",
-                                        "marginTop": "6px"},
-                                children="No data file loaded; using model's get_data().",
-                            ),
                         ],
                     ),
                 ],
@@ -918,6 +930,35 @@ def create_dash_app(
                 )
             filepath = runtime.filepath
             new_load = False
+            # Flush any pending textarea edits to the source file BEFORE we
+            # re-parse and re-run inference. Without this, a user could type
+            # a new prior expression, click Refresh, and see no change —
+            # because Refresh by itself doesn't write to disk.
+            pending = prior_edits or {}
+            if pending and runtime.ditto_graph is not None:
+                bad = []
+                for var_name, expression in list(pending.items()):
+                    var = runtime.ditto_graph.variables.get(var_name)
+                    if var is None:
+                        continue
+                    expr = (expression or "").strip()
+                    if not expr:
+                        continue
+                    try:
+                        ast.parse(expr, mode="eval")
+                    except SyntaxError as exc:
+                        bad.append(f"{var_name}: {exc.msg}")
+                        continue
+                    try:
+                        _rewrite_prior_in_file(filepath, var, expr)
+                    except Exception as exc:  # noqa: BLE001
+                        bad.append(f"{var_name}: {exc}")
+                if bad:
+                    return (
+                        no_update, no_update,
+                        "Refresh failed to apply edits: " + "; ".join(bad),
+                        no_update, no_update, no_update, no_update, no_update,
+                    )
         else:
             raise PreventUpdate
 
@@ -959,8 +1000,11 @@ def create_dash_app(
             elements_local, runtime.filepath,
         )
 
-        # 4. After a brand-new load, drop any stale prior edits.
-        next_prior_edits = {} if new_load else (prior_edits or {})
+        # 4. After a brand-new load OR a refresh (which has now flushed any
+        # pending edits to disk), drop the prior-edit-store entries. The
+        # newly re-parsed elements list is now the source of truth for the
+        # textarea's rendered value.
+        next_prior_edits = {}
 
         cytoscape_style = {
             "width": "100%", "height": "100%", "minHeight": "400px",
@@ -990,6 +1034,51 @@ def create_dash_app(
         if not n_clicks:
             raise PreventUpdate
         return (current or 0) + 1
+
+    @app.callback(
+        Output("prior-edit-store", "data", allow_duplicate=True),
+        Input("prior-edit-textarea", "value"),
+        State("selected-node-store", "data"),
+        State("model-store", "data"),
+        State("prior-edit-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _capture_prior_edit(value, selected, model_state, prior_edits):
+        """Persist user textarea edits into ``prior-edit-store``.
+
+        Without this, typing into the textarea is purely visual: a Refresh
+        click would re-read the file's original expression and discard the
+        user's intended edit. Storing the in-flight value here lets Refresh
+        re-apply it.
+        """
+        if not selected or not selected.get("id"):
+            raise PreventUpdate
+        if not model_state or "variables" not in model_state:
+            raise PreventUpdate
+        node_id = selected["id"]
+        if node_id not in model_state["variables"]:
+            raise PreventUpdate
+        # Only track edits for nodes that actually expose the editor —
+        # i.e. nodes tagged ``prior``. Other nodes should never touch
+        # the store (their textarea is the hidden stub with value="").
+        var_meta = model_state["variables"][node_id]
+        tags = set(var_meta.get("tags", [var_meta.get("tag", "")]))
+        if "prior" not in tags:
+            raise PreventUpdate
+
+        edits = dict(prior_edits or {})
+        # Pull the canonical "on-disk" expression from the model store so we
+        # can drop entries that match it (no point storing a no-op edit).
+        elements_local = model_state.get("elements", [])
+        _, _, expression_lookup = _build_lookups(elements_local)
+        canonical = expression_lookup.get(node_id, "")
+        new_value = (value or "").rstrip("\n")
+
+        if new_value == canonical or new_value == "":
+            edits.pop(node_id, None)
+        else:
+            edits[node_id] = new_value
+        return edits
 
     @app.callback(
         Output("data-store", "data"),
@@ -1051,16 +1140,23 @@ def create_dash_app(
         Input("cytoscape", "mouseoverNodeData"),
         Input("selected-node-store", "data"),
         Input("model-store", "data"),
+        Input("data-store", "data"),
+        State("prior-edit-store", "data"),
         prevent_initial_call=False,
     )
-    def _render_side_panel(hover_data, selected, model_state):
+    def _render_side_panel(hover_data, selected, model_state, data_state,
+                            prior_edits):
         ctx = dash.callback_context
         trigger_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else ""
 
         if not model_state or not model_state.get("variables"):
-            return _initial_side_panel(
-                "Load a .py file to see distributions and edit priors."
-            )
+            return [
+                _initial_side_panel(
+                    "Load a .py file to see distributions and edit priors."
+                ),
+                _hidden_edit_stubs(),
+                _hidden_data_stubs(),
+            ]
 
         elements_local = model_state.get("elements", [])
         prior_lookup, posterior_lookup, expression_lookup = _build_lookups(
@@ -1079,7 +1175,11 @@ def create_dash_app(
             node_id = hover_data.get("id")
 
         if not node_id or node_id not in variables_payload:
-            return _initial_side_panel()
+            return [
+                _initial_side_panel(),
+                _hidden_edit_stubs(),
+                _hidden_data_stubs(),
+            ]
 
         var_meta = variables_payload[node_id]
         tag = var_meta.get("tag", "")
@@ -1105,14 +1205,22 @@ def create_dash_app(
         if not prior_b64 and not posterior_b64:
             children.append(html.P("No samples available for this variable."))
 
-        # Editable prior expression (Phase 6.4): only shown for nodes that
-        # have a prior tag (prior, latent).
-        if {"prior", "latent"} & tags:
+        # Editable prior expression: only shown for nodes explicitly tagged
+        # ``prior``. Pure ``latent`` / ``observed`` nodes don't get this
+        # affordance — their priors are derived from the model's structure
+        # rather than user-editable on the canvas.
+        if "prior" in tags:
+            # Prefer any pending (un-applied) edit over the persisted file
+            # value so refresh keeps the user's typed text on screen.
+            pending_edits = prior_edits or {}
+            current_value = pending_edits.get(
+                node_id, expression_lookup.get(node_id, "")
+            )
             children.append(html.Hr())
             children.append(html.H4("Edit prior"))
             children.append(dcc.Textarea(
                 id="prior-edit-textarea",
-                value=expression_lookup.get(node_id, ""),
+                value=current_value,
                 style={"width": "100%", "height": "70px",
                         "fontFamily": "monospace", "fontSize": "12px"},
             ))
@@ -1127,17 +1235,45 @@ def create_dash_app(
                 ],
             ))
         else:
-            # Always include the components (with no_update semantics) so
-            # the edit callback doesn't fail with "no such id"; we hide them
-            # behind a stub display:none div.
-            children.append(html.Div(
-                style={"display": "none"},
-                children=[
-                    dcc.Textarea(id="prior-edit-textarea", value=""),
-                    html.Button("Apply Prior", id="apply-prior-btn", n_clicks=0),
-                    html.Span(id="prior-edit-msg"),
-                ],
+            children.append(_hidden_edit_stubs())
+
+        # Data upload: only shown for nodes explicitly tagged ``observed``.
+        if "observed" in tags:
+            children.append(html.Hr())
+            children.append(html.H4("Data"))
+            children.append(dcc.Upload(
+                id="upload-data",
+                children=html.Div([
+                    "Drop a data file (.csv, .npy, .pkl) or ",
+                    html.A("click to browse", style={"color": "#4C72B0"}),
+                ]),
+                style={
+                    "border": "1px dashed #aaa",
+                    "borderRadius": "6px",
+                    "padding": "10px",
+                    "textAlign": "center",
+                    "color": "#666",
+                    "fontSize": "13px",
+                },
+                multiple=False,
+                accept=".csv,.npy,.pkl",
             ))
+            data_summary_msg = (
+                (data_state or {}).get("summary")
+                or "No data file loaded; using model's get_data()."
+            )
+            if data_state and data_state.get("summary"):
+                data_summary_msg = (
+                    f"{data_state['summary']} (click Refresh to use)"
+                )
+            children.append(html.Div(
+                id="data-summary",
+                style={"fontSize": "12px", "color": "#444",
+                        "marginTop": "6px"},
+                children=data_summary_msg,
+            ))
+        else:
+            children.append(_hidden_data_stubs())
 
         return html.Div(children)
 

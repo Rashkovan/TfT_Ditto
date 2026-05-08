@@ -85,6 +85,27 @@ design decisions, obstacles encountered, and follow-up suggestions.
 
 ### Major design decisions
 
+- **Side-panel affordances are tag-gated (2026-05-08).** "Edit prior"
+  and "Data" panels used to render unconditionally for every selected
+  node, which was confusing on `latent` and `observed` variables (no
+  prior to edit) and on `prior` variables (no observations to upload).
+  The side-panel renderer now gates on the variable's tag set: the
+  prior textarea is shown only when `"prior"` is in `tags`, and the
+  data uploader is shown only when `"observed"` is in `tags`. Hidden
+  stub components (`display: none`) keep the IDs in the layout for
+  every render so the per-component callbacks stay happy. **Edits
+  persist across Refresh (2026-05-08):** typing into the prior
+  textarea now writes to `prior-edit-store` via a dedicated capture
+  callback. The Refresh handler flushes any pending edits to the
+  source `.py` (via `_rewrite_prior_in_file`) **before** re-running
+  the parse/build/inference pipeline, so a typed-but-not-Apply'd edit
+  still propagates through the model on Refresh. After the pipeline
+  runs, `prior-edit-store` is cleared because the freshly re-parsed
+  elements are now the source of truth. To avoid focus loss while
+  typing, `prior-edit-store` is now a `State` (not an `Input`) of the
+  side-panel renderer; the renderer only re-fires on hover, selection,
+  model, or data-store changes.
+
 - **Phase 6 GUI enhancements (2026-05-07).** `cli.py` now accepts an
   optional `filepath`; when omitted, the Dash app launches in an empty
   state and the user loads a file at runtime via drag-and-drop or a

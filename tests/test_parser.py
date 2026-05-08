@@ -160,6 +160,33 @@ def test_pyro_sample_with_non_string_first_arg_raises(tmp_path):
         parse_file(str(path))
 
 
+def test_parse_srs_example_finds_all_three_variables():
+    """srs_example has two latent variables (lambda_plus, lambda_minus) defined
+    via pyro.sample() inside a model function and one observed site (obs) inside
+    a with-plate block.  The parser must pick up all three and the graph builder
+    must wire them correctly."""
+    from ditto.graph_builder import build_graph
+
+    variables = parse_file(os.path.join(FIXTURES, "srs_example.py"))
+    names = [v.name for v in variables]
+    assert set(names) == {"lambda_plus", "lambda_minus", "obs"}
+
+    tags = {v.name: v.tag for v in variables}
+    assert tags["lambda_plus"] == "latent"
+    assert tags["lambda_minus"] == "latent"
+    assert tags["obs"] == "observed"
+
+    # Both latent variables should carry the multi-tag frozenset.
+    for v in variables:
+        if v.name in ("lambda_plus", "lambda_minus"):
+            assert "prior" in v.tags and "latent" in v.tags
+
+    graph = build_graph(variables, filepath=os.path.join(FIXTURES, "srs_example.py"))
+    assert set(graph.graph.nodes()) == {"lambda_plus", "lambda_minus", "obs"}
+    assert ("lambda_plus", "obs") in graph.graph.edges()
+    assert ("lambda_minus", "obs") in graph.graph.edges()
+
+
 def test_multiple_latent_variables_allowed(tmp_path):
     """Unlike the old ``approx`` rule, multiple ``latent`` vars are fine."""
     src = textwrap.dedent(
