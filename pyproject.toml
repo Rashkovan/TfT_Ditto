@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ditto"
+version = "0.1.0"
+description = "DAG visualization tool for Pyro probabilistic models."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Sam Nelson", email = "sam_nelson@brown.edu" }]
+keywords = ["pyro", "probabilistic-programming", "visualization", "dag"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pyro-ppl>=1.8",
+    "torch",
+    "matplotlib",
+    "scipy",
+    "networkx",
+    "pyyaml",
+    "dash>=2.0",
+    "dash-cytoscape",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+ditto-viz = "ditto.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ditto*"]
+exclude = ["tests*", "ProjectSpecs*"]

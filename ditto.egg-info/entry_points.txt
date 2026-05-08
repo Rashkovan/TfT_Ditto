@@ -1,0 +1,2 @@
+[console_scripts]
+ditto-viz = ditto.cli:main

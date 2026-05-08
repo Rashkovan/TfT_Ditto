@@ -1,3 +1,29 @@
+Metadata-Version: 2.4
+Name: ditto
+Version: 0.1.0
+Summary: DAG visualization tool for Pyro probabilistic models.
+Author-email: Sam Nelson <sam_nelson@brown.edu>
+License: MIT
+Keywords: pyro,probabilistic-programming,visualization,dag
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: pyro-ppl>=1.8
+Requires-Dist: torch
+Requires-Dist: matplotlib
+Requires-Dist: scipy
+Requires-Dist: networkx
+Requires-Dist: pyyaml
+Requires-Dist: dash>=2.0
+Requires-Dist: dash-cytoscape
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+
 # Ditto
 
 A DAG visualization tool for [Pyro](https://pyro.ai/) probabilistic models.
@@ -12,7 +38,7 @@ samples.
 
 ```bash
 pip install -e .
-ditto-viz path/to/your_model.py
+ditto path/to/your_model.py
 ```
 
 then open http://localhost:8050.
@@ -66,7 +92,7 @@ Defaults live in `ditto.yaml`. CLI flags:
 
 ```python
 import ditto
-ditto.run("path/to/your_model.py")  # or use: ditto-viz path/to/your_model.py from the CLI
+ditto.run("path/to/your_model.py")
 ```
 
 ## Tests
@@ -84,37 +110,6 @@ This section is maintained by the Ditto build conductor. It records major
 design decisions, obstacles encountered, and follow-up suggestions.
 
 ### Major design decisions
-
-- **Phase 6 GUI enhancements (2026-05-07).** `cli.py` now accepts an
-  optional `filepath`; when omitted, the Dash app launches in an empty
-  state and the user loads a file at runtime via drag-and-drop or a
-  native "Open File…" button (`tkinter.filedialog`). All runtime mutable
-  state — current model, edited prior expressions, uploaded data,
-  selected node — lives in `dcc.Store` components. Heavy server-side
-  objects (`DittoGraph`, `user_module`, `InferenceResult`) are kept in a
-  `_RuntimeState` instance closed over by the callbacks. The "Apply
-  Prior" button parses the new expression with `ast.parse(expr,
-  mode="eval")` for validation, mutates the in-memory variable's
-  `raw_expression`, and re-samples only that node's prior; full
-  posterior re-inference is gated behind the "Refresh" button so users
-  control when expensive SVI runs. Thumbnails are still pre-computed
-  once per node (now per refresh) and stored in the elements list, so
-  the hover/click callbacks remain matplotlib-free at request time.
-  `dcc.Loading` wraps the DAG container as the running-state indicator
-  rather than `dcc.Interval` polling, per the architectural rule.
-  Backward compatibility: when a filepath is passed at launch, the app
-  behaves exactly as it did before — same elements, same hover
-  callback, same `--export` and `--dry-run` flags.
-
-- **Latent nodes always get a prior plot (2026-05-07).** The
-  `build_cytoscape_elements` predicate `show_prior = "prior" in
-  variable.tags` was bug-compatible with parser-produced variables only
-  when the tag set explicitly included `"prior"`; latent-only tags
-  (`{"latent"}`) silently produced empty prior thumbnails despite the
-  visualizer test expecting a populated one. Fixed by gating on
-  `effective_tags & {"prior", "latent"}` and falling back to
-  `frozenset({variable.tag})` when callers (notably tests) construct
-  `AnnotatedVariable` without an explicit `tags` field.
 
 - **`pyro.sample(...)` annotations for latent vars (2026-05-02).** Users
   often write `# !Ditto: latent` directly above a `pyro.sample(...)` call

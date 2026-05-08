@@ -1,0 +1,2 @@
+- [Project: Ditto](project_ditto.md) — Pyro DAG visualizer; entry point is `ditto-viz`, NOT `ditto`.
+- [Phase 6 design](project_phase6.md) — runtime-mutable Dash state via dcc.Store + server-side _RuntimeState.

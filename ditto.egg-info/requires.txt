@@ -1,0 +1,11 @@
+pyro-ppl>=1.8
+torch
+matplotlib
+scipy
+networkx
+pyyaml
+dash>=2.0
+dash-cytoscape
+
+[dev]
+pytest>=7.0
