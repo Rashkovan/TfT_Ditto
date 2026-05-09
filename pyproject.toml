@@ -36,6 +36,12 @@ dev = ["pytest>=7.0"]
 [project.scripts]
 ditto-viz = "ditto.cli:main"
 
+[tool.uv]
+# uv manages the virtual environment and pins all transitive dependencies
+# with SHA-256 hashes in uv.lock. Run `uv sync` to install; hashes are
+# verified automatically on every install.
+managed = true
+
 [tool.setuptools.packages.find]
 include = ["ditto*"]
 exclude = ["tests*", "ProjectSpecs*"]

@@ -48,7 +48,7 @@ def model(correct, time_taken, n_questions=30):
     mu_k = torch.sigmoid(3.0 - 4.0 * stress)
     kappa_k = 5.0
 
-    # !Ditto: latent
+    # !Ditto: prior, latent
     knowledge = pyro.sample("knowledge",
         dist.Beta(mu_k * kappa_k, (1 - mu_k) * kappa_k))
 

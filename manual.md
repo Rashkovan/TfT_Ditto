@@ -86,13 +86,7 @@ def model(x, obs=None):
 
 The bare form is required for `observed` sites — Pyro's `obs=...` conditioning lives on the `pyro.sample` call itself, so there's nothing to assign to.
 
-### What Ditto does at parse time
-
-The parser scans for `# !Ditto:` comments line by line, then walks the AST to find the closest annotatable statement after each comment. Blank lines between the comment and the statement are tolerated. Tuple unpacking and attribute assignment targets are not supported (each annotation must correspond to a single named variable).
-
-Edges in the DAG are inferred from variable references on the right-hand side. Unannotated intermediate variables are walked transitively, so `stress -> mu_k -> knowledge` (where `mu_k` is a plain assignment) still becomes a single edge `stress -> knowledge` in the graph.
-
----
+—-
 
 ## 3. Required Components in Your Source File
 
@@ -183,8 +177,7 @@ If `tkinter` is not available (e.g. on a headless server, or because `python3-tk
 
 - **Pan**: click-drag empty space.
 - **Zoom**: scroll wheel or pinch.
-- **Drag a node**: click-drag a node to reposition it. Layout
-  recomputation is disabled (`autoRefreshLayout=False`) so manual positions stick.
+- **Drag a node**: click-drag a node to reposition it. Layout recomputation is disabled (`autoRefreshLayout=False`) so manual positions stick.
 
 ### Hovering for distribution plots
 
@@ -245,48 +238,3 @@ export:
 ```
 
 The `--port` CLI flag overrides `server.port`. The `export.*` keys are read only when `--export` is passed.
-
----
-
-## 7. Troubleshooting
-
-### `User module must define a get_data() function`
-
-You annotated a `latent` or `observed` variable but the source file has no top-level `get_data` callable. Add one:
-
-```python
-def get_data():
-    return (), {}    # if your model takes no arguments
-```
-
-### `Unknown Ditto tag 'approx'`
-
-The old `approx` tag was removed when Ditto switched to auto-guide construction. If you see this error after upgrading, change `# !Ditto: approx` to `# !Ditto: latent` and delete any `guide = AutoNormal(...)` line you wrote yourself; Ditto now builds the guide for you.
-
-### `File dialog unavailable: ...` after clicking "Open File…"
-
-`tkinter` couldn't open a window. On Linux you typically need to install the OS-level Tk package: `sudo apt install python3-tk`. On a true headless server (no display) the dialog can't run at all — use the drag-drop overlay instead, or pass the file path on the command line.
-
-### `pyro.optim has no attribute 'Adam'`
-
-You used `torch.optim.Adam` somewhere SVI expected a Pyro optimizer. Inside Ditto this is handled, but if you've extended the inference engine yourself, remember to use `pyro.optim.Adam` (a wrapper that constructs per-parameter optimizers) rather than `torch.optim.Adam`.
-
-### `Dependency cycle detected`
-
-The dependencies inferred from your annotations form a cycle. The error prints the offending edges. Common causes: a variable's expression mentions a downstream variable name (often a typo), or transitive resolution found a cycle through intermediate assignments. Fix by renaming or restructuring.
-
-### Inference is too slow / SVI doesn't converge
-
-Tune `inference.svi_steps` and `inference.learning_rate` in `ditto.yaml`. For quick experiments while you iterate on annotations, lower `num_samples` to 200 and `svi_steps` to a few hundred — the dashboard will be noisier but will come up faster.
-
-### Prior edit doesn't seem to change the posterior plots
-
-"Apply Prior" only re-samples the prior for that variable. Click "Refresh" to propagate the change through SVI + posterior prediction. The status message under the textarea reminds you of this.
-
-### Drag-drop fails with a parsing error
-
-Ditto writes uploaded files to a temp file before parsing. The error message in the top status line is the same one you'd see at the CLI; common causes are syntax errors, missing imports, or a missing `get_data`. Fix in your source file and drop again.
-
-### CSV data load failed
-
-`pandas` is required for CSV uploads. Install it (`pip install pandas`). Also make sure all columns are numeric — Ditto converts the frame straight to a `float32` tensor. Use a `.npy` or `.pkl` upload if you need a non-tabular shape.

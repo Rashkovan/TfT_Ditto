@@ -1,0 +1,13 @@
+# uv project-level overrides for Ditto.
+# https://docs.astral.sh/uv/reference/settings/
+#
+# Project-level settings (managed, dev-dependencies, sources, etc.) live in
+# pyproject.toml under [tool.uv]. This file is for environment-level
+# overrides that shouldn't be baked into pyproject.toml — for example,
+# pointing at a local PyTorch wheel cache or a private index.
+#
+# Example: use a local PyTorch CPU wheel directory instead of PyPI
+# [[index]]
+# name = "pytorch-local"
+# url = "file:///path/to/local/wheels"
+# explicit = true

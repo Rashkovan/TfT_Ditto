@@ -74,6 +74,11 @@ def _to_numpy(samples: torch.Tensor) -> np.ndarray:
     return arr.reshape(-1)
 
 
+def _is_integer_valued(arr: np.ndarray) -> bool:
+    """Return True if every element of ``arr`` is (within float tolerance) an integer."""
+    return bool(np.all(np.abs(arr - np.round(arr)) < 1e-6))
+
+
 def plot_variable(
     samples: torch.Tensor,
     variable: AnnotatedVariable,
@@ -85,10 +90,10 @@ def plot_variable(
 ) -> None:
     """Plot a per-variable distribution onto an existing matplotlib ``ax``.
 
-    Uses Gaussian KDE with Silverman's rule when there are enough unique
-    values; otherwise falls back to a histogram. Also catches
-    ``numpy.linalg.LinAlgError`` (which KDE raises on zero-variance inputs)
-    and degrades gracefully.
+    Integer-valued samples (discrete distributions such as Poisson, Binomial,
+    Categorical) are always rendered as a bar chart keyed on unique values.
+    Continuous samples use Gaussian KDE with Silverman's rule, degrading to a
+    histogram on singular bandwidth or too few unique values.
     """
     arr = _to_numpy(samples)
     plot_title = title if title is not None else f"{variable.name} ({variable.tag})"
@@ -99,8 +104,16 @@ def plot_variable(
                 transform=ax.transAxes)
         return
 
-    unique_vals = np.unique(arr)
+    if _is_integer_valued(arr):
+        unique_vals, counts = np.unique(arr.astype(int), return_counts=True)
+        ax.bar(unique_vals, counts / counts.sum(), color=color, width=0.8,
+               align="center")
+        ax.set_xlabel("value")
+        ax.set_ylabel("probability")
+        ax.set_title(plot_title)
+        return
 
+    unique_vals = np.unique(arr)
     if len(unique_vals) < 10:
         ax.hist(arr, bins=min(histogram_bins, len(unique_vals)), color=color)
         ax.set_title(plot_title)
@@ -113,7 +126,6 @@ def plot_variable(
         ax.plot(xs, ys, color=color)
         ax.fill_between(xs, ys, alpha=0.3, color=color)
     except np.linalg.LinAlgError:
-        # KDE bandwidth matrix went singular (e.g. all samples identical).
         ax.hist(arr, bins=histogram_bins, color=color)
     ax.set_title(plot_title)
 
@@ -181,6 +193,11 @@ def build_cytoscape_elements(
     prior_color = TAG_COLORS["prior"]
     posterior_color = TAG_COLORS["observed"]
 
+    def _node_size(label: str) -> int:
+        # Estimate px width of label at 14px sans-serif (~7.5px/char) plus
+        # 24px padding, then snap up to the nearest even number, minimum 60.
+        return max(60, round(len(label) * 7.5 + 24))
+
     for name, variable in ditto_graph.variables.items():
         prior_b64 = ""
         posterior_b64 = ""
@@ -192,10 +209,7 @@ def build_cytoscape_elements(
         # frozenset was supplied (older callers / tests construct
         # ``AnnotatedVariable`` without it).
         effective_tags = variable.tags if variable.tags else frozenset({variable.tag})
-        # ``latent`` implies a prior plot too: latents get both the prior
-        # (from sampling the declared distribution) and the posterior (from
-        # SVI). ``prior`` of course gets a prior plot. ``observed`` does not.
-        show_prior = bool(effective_tags & {"prior", "latent"})
+        show_prior = bool("prior" in effective_tags)
         show_posterior = bool(effective_tags & {"latent", "observed"})
 
         if show_prior and prior_tensor is not None:
@@ -213,6 +227,7 @@ def build_cytoscape_elements(
 
         primary = prior_b64 if prior_b64 else posterior_b64
 
+        size = _node_size(name)
         elements.append(
             {
                 "data": {
@@ -224,6 +239,8 @@ def build_cytoscape_elements(
                     "image": primary,
                     "image_prior": prior_b64,
                     "image_posterior": posterior_b64,
+                    "width": size,
+                    "height": size,
                 }
             }
         )
@@ -252,8 +269,8 @@ def _build_stylesheet(config: dict) -> List[dict]:
                 "text-halign": "center",
                 "color": "white",
                 "font-size": "14px",
-                "width": 60,
-                "height": 60,
+                "width": "data(width)",
+                "height": "data(height)",
             },
         },
         {"selector": 'node[tag = "prior"]', "style": {"background-color": prior_color}},
@@ -798,20 +815,25 @@ def create_dash_app(
                             dcc.Loading(
                                 id="dag-loading",
                                 type="circle",
-                                style={"flex": "1", "minHeight": 0},
+                                style={"flex": "1", "minHeight": 0,
+                                       "display": "flex", "flexDirection": "column"},
                                 children=html.Div(
                                     id="dag-container",
                                     style={"flex": "1", "minHeight": 0,
-                                            "position": "relative"},
+                                            "position": "relative",
+                                            "display": "flex", "flexDirection": "column"},
                                     children=[
                                         cyto.Cytoscape(
                                             id="cytoscape",
-                                            layout={"name": "dagre"},
+                                            layout={"name": "dagre", "padding": 60,
+                                                    "fit": True},
                                             autoRefreshLayout=True,
                                             userPanningEnabled=True,
                                             userZoomingEnabled=True,
-                                            style={"width": "100%", "height": "100%",
-                                                    "minHeight": "400px",
+                                            minZoom=0.2,
+                                            maxZoom=3.0,
+                                            style={"width": "100%",
+                                                    "height": "calc(100vh - 115px)",
                                                     "display": "block" if file_loaded
                                                     else "none"},
                                             elements=elements,
@@ -1007,7 +1029,7 @@ def create_dash_app(
         next_prior_edits = {}
 
         cytoscape_style = {
-            "width": "100%", "height": "100%", "minHeight": "400px",
+            "width": "100%", "height": "calc(100vh - 115px)",
             "display": "block",
         }
         empty_style = {"display": "none"}
