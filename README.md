@@ -40,25 +40,12 @@ uv run ditto-viz --help
 `uv run` executes the command inside the managed environment without requiring
 manual activation.
 
-#### If you don't have `uv`
-
-```bash
-pip install uv
-# or on macOS/Linux:
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
 #### Lockfile and Python version
 
 - **`uv.lock`** — pins exact versions and SHA-256 hashes for all transitive
   dependencies. Regenerate after changing `pyproject.toml` with `uv lock`.
 - **`.python-version`** — pins the interpreter to Python 3.14. `uv` reads this
   automatically when creating the virtual environment.
-
-### Optional dependencies
-
-- `pandas` — required if you plan to load `.csv` data files from the UI. Already a transitive dependency of most Pyro environments, but included in `uv.lock` automatically.
-- `pygraphviz` — only used by the static `--export` path for hierarchical layout. Skip if you don't care about static PNG export.
 
 ---
 
