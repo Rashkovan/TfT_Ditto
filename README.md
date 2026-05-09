@@ -1,275 +1,268 @@
-# Ditto
+# The Ditto Manual
 
-A DAG visualization tool for [Pyro](https://pyro.ai/) probabilistic models.
+Ditto is a DAG visualizer for [Pyro](https://pyro.ai/) probabilistic models. You annotate your Pyro source with a few lightweight comments, point Ditto at the file, and Ditto returns a browser-based dashboard that shows the dependency graph of your model with prior and posterior plots attached to each node. From the dashboard you can also drop in new model files, edit priors live, and load alternative datasets without restarting the server.
 
-Ditto reads a Pyro source file annotated with `# !Ditto:` comments, builds the
-implicit dependency graph, runs the model (sampling priors and, optionally,
-running SVI with an auto-generated guide for any `latent` variables), and serves an interactive Dash +
-Cytoscape web app where each node carries a hover-on KDE/histogram of its
-samples.
-
-## Quick start
-
-```bash
-pip install -e .
-ditto-viz path/to/your_model.py
-```
-
-then open http://localhost:8050.
-
-### Annotating your model
-
-Place a `# !Ditto: <tag>` comment on the line directly above each assignment
-you want to surface in the DAG. Tags are:
-
-- `prior` — a `pyro.distributions` object you want to sample from directly;
-  the tooltip shows its prior distribution.
-- `latent` — a latent variable to be inferred. The annotated expression
-  may be either a bare distribution (`dist.Normal(0., 1.)`) or a
-  `pyro.sample("name", dist.X(...))` call (useful when the annotation lives
-  inside your `model` function). Ditto auto-creates an `AutoNormal(model)`
-  guide for bare-distribution latents, or `AutoNormalizingFlow(model, ...)`
-  if any latent is declared via `pyro.sample(...)`, and runs SVI. The
-  tooltip shows *both* the prior distribution (sampled from this
-  expression) and the posterior distribution (from `Predictive` over the
-  trained guide), stacked vertically.
-- `observed` — a site that consumes other variables (typically your
-  likelihood); the tooltip shows the posterior predictive distribution.
-
-Example (see `tests/fixtures/simple_model.py`):
-
-```python
-# !Ditto: latent
-mu = dist.Normal(0., 1.)
-
-# !Ditto: observed
-x = dist.Normal(mu, 1.)
-```
-
-Your file must also define a top-level `model(...)` callable and a
-`get_data() -> (args, kwargs)` helper. You no longer need to define a
-guide — Ditto builds one automatically whenever any `latent` variable is
-present.
-
-## Configuration
-
-Defaults live in `ditto.yaml`. CLI flags:
-
-| flag | default | meaning |
-|------|---------|---------|
-| `--config` | `ditto.yaml` | path to a YAML config |
-| `--port` | `8050` | port for the Dash server |
-| `--export PATH` | _off_ | write a static PNG of the DAG to `PATH` |
-| `--dry-run` | _off_ | run pipeline but don't start the server |
-
-## Programmatic use
-
-```python
-import ditto
-ditto.run("path/to/your_model.py")  # or use: ditto-viz path/to/your_model.py from the CLI
-```
-
-## Tests
-
-```bash
-pip install -e ".[dev]"
-pytest tests/
-```
+This manual is written for researchers who already know Python and the basics of Pyro. It walks through installation, annotation, the CLI, configuration, and common pitfalls.
 
 ---
 
-## Conductor Notes
+## 1. Installation
 
-This section is maintained by the Ditto build conductor. It records major
-design decisions, obstacles encountered, and follow-up suggestions.
+### Requirements
 
-### Major design decisions
+- Python 3.9 or later. (Ditto uses `ast.unparse`, which arrived in 3.9.)
+- An OS Tk install if you want the native "Open File…" button. On macOS and Windows this is bundled with Python; on Linux you may need to install `python3-tk` (`sudo apt install python3-tk`).
 
-- **Side-panel affordances are tag-gated (2026-05-08).** "Edit prior"
-  and "Data" panels used to render unconditionally for every selected
-  node, which was confusing on `latent` and `observed` variables (no
-  prior to edit) and on `prior` variables (no observations to upload).
-  The side-panel renderer now gates on the variable's tag set: the
-  prior textarea is shown only when `"prior"` is in `tags`, and the
-  data uploader is shown only when `"observed"` is in `tags`. Hidden
-  stub components (`display: none`) keep the IDs in the layout for
-  every render so the per-component callbacks stay happy. **Edits
-  persist across Refresh (2026-05-08):** typing into the prior
-  textarea now writes to `prior-edit-store` via a dedicated capture
-  callback. The Refresh handler flushes any pending edits to the
-  source `.py` (via `_rewrite_prior_in_file`) **before** re-running
-  the parse/build/inference pipeline, so a typed-but-not-Apply'd edit
-  still propagates through the model on Refresh. After the pipeline
-  runs, `prior-edit-store` is cleared because the freshly re-parsed
-  elements are now the source of truth. To avoid focus loss while
-  typing, `prior-edit-store` is now a `State` (not an `Input`) of the
-  side-panel renderer; the renderer only re-fires on hover, selection,
-  model, or data-store changes.
+### Install from source
 
-- **Phase 6 GUI enhancements (2026-05-07).** `cli.py` now accepts an
-  optional `filepath`; when omitted, the Dash app launches in an empty
-  state and the user loads a file at runtime via drag-and-drop or a
-  native "Open File…" button (`tkinter.filedialog`). All runtime mutable
-  state — current model, edited prior expressions, uploaded data,
-  selected node — lives in `dcc.Store` components. Heavy server-side
-  objects (`DittoGraph`, `user_module`, `InferenceResult`) are kept in a
-  `_RuntimeState` instance closed over by the callbacks. The "Apply
-  Prior" button parses the new expression with `ast.parse(expr,
-  mode="eval")` for validation, mutates the in-memory variable's
-  `raw_expression`, and re-samples only that node's prior; full
-  posterior re-inference is gated behind the "Refresh" button so users
-  control when expensive SVI runs. Thumbnails are still pre-computed
-  once per node (now per refresh) and stored in the elements list, so
-  the hover/click callbacks remain matplotlib-free at request time.
-  `dcc.Loading` wraps the DAG container as the running-state indicator
-  rather than `dcc.Interval` polling, per the architectural rule.
-  Backward compatibility: when a filepath is passed at launch, the app
-  behaves exactly as it did before — same elements, same hover
-  callback, same `--export` and `--dry-run` flags.
+```bash
+git clone <your-repo-url> ditto
+cd ditto
+uv sync
+```
 
-- **Latent nodes always get a prior plot (2026-05-07).** The
-  `build_cytoscape_elements` predicate `show_prior = "prior" in
-  variable.tags` was bug-compatible with parser-produced variables only
-  when the tag set explicitly included `"prior"`; latent-only tags
-  (`{"latent"}`) silently produced empty prior thumbnails despite the
-  visualizer test expecting a populated one. Fixed by gating on
-  `effective_tags & {"prior", "latent"}` and falling back to
-  `frozenset({variable.tag})` when callers (notably tests) construct
-  `AnnotatedVariable` without an explicit `tags` field.
+`uv sync` creates a managed virtual environment and installs all dependencies
+with SHA-256 hash verification from `uv.lock`, so tampered or corrupted wheels
+are rejected before they touch your environment.
 
-- **`pyro.sample(...)` annotations for latent vars (2026-05-02).** Users
-  often write `# !Ditto: latent` directly above a `pyro.sample(...)` call
-  inside their `model` function rather than above a bare distribution
-  expression. Naively `eval`-ing the RHS would execute the sample site and
-  return a tensor, breaking `sample_prior`. The engine now detects this via
-  `is_pyro_sample_call` (AST check for a top-level `Call` with `func.id ==
-  "sample"` or `func.attr == "sample"`) and pulls the second positional
-  argument out as the distribution sub-expression to eval instead. The
-  parser stamps `AnnotatedVariable.is_sample_call` at parse time so
-  downstream logic doesn't re-parse the string. Guide selection follows
-  the same predicate: any sample-call latent triggers `AutoNormalizingFlow`
-  (with `block_autoregressive` as `init_transform_fn`); otherwise we fall
-  back to `AutoNormal` for the cheaper, simpler joint.
+To include the development dependencies (pytest):
 
-- **Tag set refactor (2026-05-02): `prior` / `latent` / `observed`.** The
-  old `approx` tag (which required users to write `guide = AutoNormal(model)`
-  themselves) was removed. Latent variables are now declared with
-  `# !Ditto: latent` on their prior distribution; Ditto auto-creates
-  `AutoNormal(user_module.model)` whenever any latent var is present. Latent
-  nodes display both prior and posterior thumbnails stacked vertically in
-  the hover tooltip. `InferenceResult` now carries `prior_samples` and
-  `posterior_samples` as separate dicts (with a `.samples` merged property
-  retained for backward compatibility).
+```bash
+uv sync --extra dev
+```
 
-- **Two-pass parser (regex + AST).** Python's `ast` module strips comment
-  nodes entirely, so the regex pass is *necessary* (not a shortcut) to
-  recover the line number of each `# !Ditto:` annotation. The AST pass then
-  picks the nearest assignment after each annotation by line number; this
-  tolerates blank lines between the comment and its target assignment.
-- **Single-target assignments only.** Each annotation must point at an
-  `Assign`/`AnnAssign` with exactly one bare-name target. This guarantees a
-  one-to-one mapping between annotations and DAG nodes. Tuple unpacking and
-  attribute assignments raise a clear `ValueError`.
-- **Edge inference by name intersection.** `graph_builder` extracts every
-  bare `ast.Name` from the RHS expression and intersects with the set of
-  *known annotated names*, then subtracts `{self}`. Library names like
-  `torch`, `dist`, `pyro` drop out automatically because they aren't
-  annotated; this keeps the rule simple and avoids hand-maintained
-  blocklists.
-- **Self-references silently ignored** instead of treated as a cycle. A
-  variable that mentions its own name in its RHS produces no edge and no
-  error. Rationale: writing `a = a + 1` in Pyro source is unusual but not
-  semantically a cycle in the *modeling* sense, and erroring would surprise
-  users more than helping them.
-- **Priors take precedence over posterior samples.** When SVI runs, any site
-  it produces samples for that already has a prior tensor in `all_samples`
-  is discarded for that site. This keeps the displayed prior plots truly
-  prior (rather than silently replacing them with posteriors).
-- **`obs` keyword stripped before `Predictive`.** The spec calls this out
-  explicitly: passing observed data to `Predictive` makes it return the
-  observation tensor verbatim. The engine strips `obs` from the kwargs
-  copy used for posterior prediction so fresh draws are produced.
-- **`poutine.uncondition` for model-internal observations (2026-05-02).**
-  When the user conditions inside their `model` (e.g.
-  `pyro.sample("obs", ..., obs=data)` rather than passing `obs=` via
-  kwargs), `_strip_observed` has nothing to strip and `Predictive` keeps
-  returning the fixed data tensor. `collect_posterior_samples` now wraps
-  the model in `pyro.poutine.uncondition` before passing it to
-  `Predictive`, which strips `obs=` from every internal sample call. The
-  legacy `_strip_observed` helper is preserved for backward compatibility
-  but no longer called by `run_inference`. The actual observed tensor is
-  recovered separately via `extract_observed_data` (a one-shot
-  `poutine.trace` over the model) and concatenated onto the posterior
-  predictive draws so the visualizer can show both together.
-- **Bare `pyro.sample(...)` annotations (2026-05-02).** The parser now
-  also matches `ast.Expr` statements wrapping a `(pyro.)sample(...)` call,
-  not just `Assign`/`AnnAssign`. The site name is taken from the
-  string-literal first argument; non-literal first args raise
-  `ValueError` because Ditto needs a stable site key. This is what makes
-  `# !Ditto: observed` work above bare conditioning sites inside a
-  `model` function.
-- **Thumbnails pre-computed at startup.** `build_cytoscape_elements` runs
-  matplotlib once per node and ships the base64 PNG inline in the
-  Cytoscape node data. The hover callback is then a pure dict lookup —
-  matplotlib never runs at request time, which keeps the UI snappy and
-  avoids matplotlib's thread-safety footguns under Dash.
-- **`cyto.load_extra_layouts()` at module import time.** Without it the
-  `dagre` layout silently falls back to `circle`. Putting it at the top of
-  `visualizer.py` (immediately after the import) means *any* path through
-  the package gets it, including programmatic use via `ditto.run`.
-- **`app.run` instead of `app.run_server`.** Dash >= 2.11 deprecated
-  `run_server` in favor of `run`. Functionally identical, but `run` is the
-  forward-compatible name.
+The console script is named `ditto-viz`. After install you should be able to run:
 
-### Obstacles encountered
+```bash
+uv run ditto-viz --help
+```
 
-- The fixture skeleton in the spec has `guide = AutoNormalizingFlow(model)`
-  *above* the `def model(...)` block. That parses, but executing it raises
-  `NameError` — and the inference tests need to import the module. The
-  fixtures here keep the same annotation tags and order but reorder the
-  function definitions above the annotated assignments so that the file is
-  both parseable *and* importable. Same change applied to
-  `linear_regression.py`. Switched the guide class to `AutoNormal` to avoid
-  `AutoNormalizingFlow`'s extra setup requirements during testing.
-- `pyro.optim.Adam` vs. `torch.optim.Adam` is a real footgun: SVI's
-  optimizer interface only matches the Pyro wrapper, and using the torch
-  optimizer fails at the first SVI step with an opaque traceback. Called
-  out in the engine's docstring.
-- **`pyro.optim` is a submodule, not auto-loaded by `import pyro`.**
-  Discovered during the 2026-05-02 critic/dev cycle: `pyro.optim.Adam(...)`
-  raised `AttributeError: module 'pyro' has no attribute 'optim'`. Fix is
-  an explicit `import pyro.optim` at the top of `inference_engine.py`.
-- **`argparse --port default=8050` masked YAML config.** The CLI's
-  `port = args.port or config["server"]["port"]` always picked the argparse
-  default because `8050` is truthy. Switched argparse default to `None` and
-  used an explicit `is not None` check so YAML port settings are honored.
-- **`eval` mutates the namespace dict** by inserting `__builtins__`. The
-  module-level `EVAL_NAMESPACE` is now copied per call so state doesn't
-  leak across `sample_prior` invocations.
-- **Defensive empty-sample plotting.** `plot_variable` now short-circuits
-  on a 0-element array with a "no samples" placeholder rather than passing
-  through to KDE/histogram code that would crash on empty input.
-- **CLI traceback printing.** The top-level `except Exception` previously
-  swallowed the traceback, leaving only a one-line message. We now also
-  call `traceback.print_exc()` so the underlying error is debuggable
-  without re-running with `-X dev`.
+`uv run` executes the command inside the managed environment without requiring
+manual activation.
 
-### Suggestions for follow-up features
+#### If you don't have `uv`
 
-- **Posterior-vs-prior overlay.** When a site has both prior draws and
-  posterior draws available, plot them on the same axes (different alpha)
-  so users can see how SVI moved the distribution.
-- **Click-to-pin tooltips.** Currently the right-pane plot follows mouseover
-  and resets when the cursor leaves. A click-to-pin mode would let users
-  compare two nodes side by side.
-- **Live-reload on source change.** Watch the user's source file with
-  `watchdog`; on change, re-parse, re-build the graph, and push an updated
-  Cytoscape `elements` payload via Dash's clientside callbacks.
-- **MCMC backend.** Currently inference is SVI-only. A `# !Ditto: mcmc`
-  tag (or a config flag) could route to NUTS/HMC for cases where the user
-  wants asymptotically exact samples.
-- **Node summary stats.** Show mean/std/quantiles in the tooltip alongside
-  the KDE plot.
-- **Cycle visualization.** When the parser detects a cycle, render the
-  offending edges in red rather than just raising — easier to debug for
-  users with large models.
+```bash
+pip install uv
+# or on macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### Lockfile and Python version
+
+- **`uv.lock`** — pins exact versions and SHA-256 hashes for all transitive
+  dependencies. Regenerate after changing `pyproject.toml` with `uv lock`.
+- **`.python-version`** — pins the interpreter to Python 3.14. `uv` reads this
+  automatically when creating the virtual environment.
+
+### Optional dependencies
+
+- `pandas` — required if you plan to load `.csv` data files from the UI. Already a transitive dependency of most Pyro environments, but included in `uv.lock` automatically.
+- `pygraphviz` — only used by the static `--export` path for hierarchical layout. Skip if you don't care about static PNG export.
+
+---
+
+## 2. Annotating Your Pyro Model
+
+Ditto only sees variables that you mark with a `# !Ditto:` comment placed on the line directly above an assignment or a bare `pyro.sample(...)` expression statement. Three tags are recognised: `prior`, `latent`, and `observed`.
+
+### The three tags
+
+- `prior` — a variable sampled from its declared distribution. The
+  hover/click panel shows just a prior plot.
+- `latent` — a latent random variable to be inferred via SVI. The visualization on the right shows the prior and the posterior stacked vertically. Ditto auto-builds the guide; you do *not* declare one yourself.
+- `observed` — a likelihood / conditioning site. The panel shows the posterior predictive distribution with the actual observed data concatenated in.
+
+You can combine tags by separating with a comma: `# !Ditto: prior, latent` makes the variable both a prior (which gets sampled directly) and a latent (which gets a posterior). The display tag (used for the node colour) is chosen by priority: `latent > observed > prior`.
+
+### Two annotation styles
+
+#### Assignment-style
+
+Put the tag above an assignment whose right-hand side is a Pyro/PyTorch distribution:
+
+```python
+import pyro.distributions as dist
+
+# !Ditto: prior
+mu = dist.Normal(0., 1.)
+
+# !Ditto: prior
+sigma = dist.HalfNormal(1.)
+
+# !Ditto: observed
+y = dist.Normal(mu, sigma)
+```
+
+This style is convenient for top-of-file definitions you'll reference inside a `model` function.
+
+#### Bare `pyro.sample(...)` style
+
+Put the tag above a `pyro.sample(...)` expression statement, typically inside your `model` function. The Pyro site name (the string-literal first argument) becomes the variable name in the DAG:
+
+```python
+def model(x, obs=None):
+    # !Ditto: latent
+    alpha = pyro.sample("alpha", dist.Normal(0., 1.))
+
+    # !Ditto: latent
+    beta = pyro.sample("beta", dist.Normal(0., 1.))
+
+    # !Ditto: observed
+    pyro.sample("obs", dist.Normal(alpha + beta * x, 0.1), obs=obs)
+```
+
+The bare form is required for `observed` sites — Pyro's `obs=...` conditioning lives on the `pyro.sample` call itself, so there's nothing to assign to.
+
+—-
+
+## 3. Required Components in Your Source File
+
+Your annotated `.py` file must define two top-level callables:
+
+### `model(*args, **kwargs)`
+
+A standard Pyro model: a Python callable that uses `pyro.sample` to draw from priors, applies any deterministic transforms, and conditions on data with `obs=`. Required when any `latent` or `observed` variables are annotated. It is the callable Ditto traces, runs SVI on, and uses for posterior prediction.
+
+### `get_data() -> (args, kwargs)`
+
+Returns the positional and keyword arguments to pass to `model`. Required whenever `model` is invoked (i.e. whenever any `latent` or `observed` variable is annotated). Example:
+
+```python
+import torch
+
+def get_data():
+    x = torch.tensor([1.0, 2.0, 3.0])
+    y = torch.tensor([2.1, 3.9, 6.2])
+    return (x,), {"obs": y}
+```
+
+If `get_data` is missing, Ditto raises a clear `AttributeError` instead of the Python default `module has no attribute 'get_data'` message.
+
+You no longer need to write a guide. Ditto auto-creates `AutoNormal` for bare-distribution latents or `AutoNormalizingFlow` (with `block_autoregressive`) when any latent uses `pyro.sample(...)`. The discrete latent sites are blocked from the autoguide automatically via `poutine.block`.
+
+---
+
+## 4. Starting the App
+
+### Launch with a file
+
+```bash
+uv run ditto-viz path/to/your_model.py
+```
+
+This runs the full pipeline (parse, build the graph, sample priors, run SVI, sample the posterior) and then opens the Dash app at http://localhost:8050.
+
+### Launch without a file
+
+```bash
+uv run ditto-viz
+```
+
+The Dash app comes up immediately with an empty canvas and a prompt to drop a `.py` file or click "Open File…". Use this when you want to explore multiple models in a single session, or when you don't yet have a
+model file to point at.
+
+### CLI flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config PATH` | `ditto.yaml` | YAML configuration file. Missing files are tolerated; built-in defaults are used. |
+| `--port N` | from config (8050) | Port for the Dash server. Overrides `server.port` in the YAML. |
+| `--export PATH` | off | Render a static PNG of the DAG to `PATH` instead of (or in addition to) launching the app. Requires a filepath. |
+| `--dry-run` | off | Run parse + build + inference and print a summary, then exit without launching the server. Requires a filepath. |
+
+`--export` and `--dry-run` both require an explicit filepath; calling them with no positional argument is an error (the empty-canvas mode has no graph to export or summarise).
+
+---
+
+## 5. Using the App
+
+The window is split into three regions:
+
+- The toolbar across the top: the title, "Open File…" button, "Refresh" button, and a status message line.
+- The DAG panel on the left: a draggable, zoomable Cytoscape graph.
+- The side panel on the right: hover/click info, a prior editor, and a data uploader.
+
+### Loading a `.py` file
+
+#### Drag and drop
+
+Drag a `.py` file from your file manager onto the dashed "Drop a .py file here" box that sits over the DAG panel. Ditto will:
+
+1. Decode the upload and write it to a temp file.
+2. Run the full pipeline (parse, build, sample, run SVI, sample posteriors).
+3. Render the DAG with thumbnails attached to each node.
+
+If parsing or inference fails, the status message at the top shows the error and the canvas stays in its previous state. The drag-drop overlay shrinks to a thin strip after a successful load so it doesn't obscure the graph; you can still drop another file on it to swap models.
+
+#### "Open File…" button
+
+Click "Open File…" in the toolbar to open your operating system's native file dialog (powered by `tkinter.filedialog.askopenfilename`). Pick a `.py` file and Ditto runs the same load pipeline as drag-drop.
+
+If `tkinter` is not available (e.g. on a headless server, or because `python3-tk` is not installed), the status line shows a friendly "File dialog unavailable" message and the rest of the app keeps working; use drag-drop instead.
+
+### Navigating the DAG
+
+- **Pan**: click-drag empty space.
+- **Zoom**: scroll wheel or pinch.
+- **Drag a node**: click-drag a node to reposition it. Layout recomputation is disabled (`autoRefreshLayout=False`) so manual positions stick.
+
+### Hovering for distribution plots
+
+Move the mouse over a node and the side panel updates with the node's KDE/histogram. `prior` nodes show one plot; `latent` nodes show two (prior on top, posterior below); `observed` nodes show the posterior predictive (with the actual observed values mixed in).
+
+The plots are pre-computed as base64 PNGs at app startup; the hover callback is a pure dict lookup, so latency is minimal even for large graphs.
+
+### Editing a prior
+*Currently not supported*
+Click (don't just hover) a node tagged `prior` or `latent`. The side panel adds an "Edit prior" textarea pre-filled with the variable's current expression and an "Apply Prior" button. To change the prior:
+
+1. Edit the expression in the textarea. Anything that parses as a Python expression is accepted (e.g. `dist.Normal(0., 5.)` or `dist.Beta(2., 3.)`).
+2. Click "Apply Prior". Ditto:
+   - Validates the expression with `ast.parse(expr, mode="eval")`. A red error message appears if the expression doesn't parse.
+   - Stores the new expression on the in-memory `AnnotatedVariable`.
+   - Re-samples that variable's prior using the existing inference engine.
+   - Rebuilds only that node's prior thumbnail.
+3. Click "Refresh" to re-run the full SVI + posterior sampling pipeline so the change propagates into the posterior plots.
+
+The edit is held in memory only — your source file is untouched.
+
+### Loading a data file
+*Currently not supported*
+
+### Refresh
+*Currently not supported*
+
+---
+
+## 6. Configuration
+
+Ditto loads `ditto.yaml` from the working directory (overridable with `--config`). Every key has a built-in default, so missing files and partial files are both fine — your YAML is layered on top of the defaults.
+
+The full schema:
+
+```yaml
+inference:
+  svi_steps: 2000          # number of SVI iterations
+  learning_rate: 0.01      # passed to pyro.optim.Adam
+  num_samples: 1000        # draws per variable for prior + posterior
+
+visualization:
+  kde_points: 200          # x-axis resolution for KDE curves
+  histogram_bins: 40       # bins for histogram fallback
+  figure_size: [4, 3]      # per-thumbnail figsize in inches
+  prior_color: "#4C72B0"   # blue
+  observed_color: "#DD8452"# orange
+  latent_color: "#55A868"  # green
+
+server:
+  port: 8050               # Dash server port
+  debug: false             # currently unused; debug=False is forced
+
+export:
+  path: null               # default --export target (CLI flag overrides)
+  format: png              # extension chosen by output_path
+  dpi: 150                 # static export DPI
+```
+
+The `--port` CLI flag overrides `server.port`. The `export.*` keys are read only when `--export` is passed.
